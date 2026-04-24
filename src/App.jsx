@@ -5,7 +5,7 @@ export default function App() {
   const [productos, setProductos] = useState([]);
 
   // ==============================
-  // FETCH UNIVERSAL (VARIAS APIs)
+  // FETCH UNIVERSAL (MÁS APIs REALES)
   // ==============================
   const fetchProducto = async (codigo) => {
     try {
@@ -18,34 +18,133 @@ export default function App() {
         datosExtra: ""
       };
 
-      // API 1: alimentos
-      const resFood = await fetch(`https://world.openfoodfacts.org/api/v0/product/${codigo}.json`);
-      const dataFood = await resFood.json();
-
-      if (dataFood.status === 1) {
-        const p = dataFood.product;
+      // Helper para aplicar datos
+      const apply = (p, extra) => {
         producto = {
           ...producto,
-          nombre: p.product_name || "Sin nombre",
-          marca: p.brands || "Sin marca",
-          imagen: p.image_small_url || "",
-          datosExtra: JSON.stringify(p, null, 2)
+          nombre: p.nombre || producto.nombre,
+          marca: p.marca || producto.marca,
+          imagen: p.imagen || producto.imagen,
+          datosExtra: extra
         };
-      } else {
-        // API 2: productos generales
-        const resUPC = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${codigo}`);
-        const dataUPC = await resUPC.json();
+      };
 
-        if (dataUPC.items?.length) {
-          const p = dataUPC.items[0];
-          producto = {
-            ...producto,
-            nombre: p.title || "Sin nombre",
-            marca: p.brand || "Sin marca",
-            imagen: p.images?.[0] || "",
-            datosExtra: JSON.stringify(p, null, 2)
-          };
+      // 1️⃣ OpenFoodFacts (comida)
+      try {
+        const r = await fetch(`https://world.openfoodfacts.org/api/v0/product/${codigo}.json`);
+        const d = await r.json();
+        if (d.status === 1) {
+          apply(
+            {
+              nombre: d.product.product_name,
+              marca: d.product.brands,
+              imagen: d.product.image_small_url
+            },
+            JSON.stringify(d.product, null, 2)
+          );
         }
+      } catch {}
+
+      // 2️⃣ OpenBeautyFacts (cosméticos)
+      if (producto.nombre === "No encontrado") {
+        try {
+          const r = await fetch(`https://world.openbeautyfacts.org/api/v0/product/${codigo}.json`);
+          const d = await r.json();
+          if (d.status === 1) {
+            apply(
+              {
+                nombre: d.product.product_name,
+                marca: d.product.brands,
+                imagen: d.product.image_small_url
+              },
+              JSON.stringify(d.product, null, 2)
+            );
+          }
+        } catch {}
+      }
+
+      // 3️⃣ OpenPetFoodFacts (mascotas)
+      if (producto.nombre === "No encontrado") {
+        try {
+          const r = await fetch(`https://world.openpetfoodfacts.org/api/v0/product/${codigo}.json`);
+          const d = await r.json();
+          if (d.status === 1) {
+            apply(
+              {
+                nombre: d.product.product_name,
+                marca: d.product.brands,
+                imagen: d.product.image_small_url
+              },
+              JSON.stringify(d.product, null, 2)
+            );
+          }
+        } catch {}
+      }
+
+      // 4️⃣ OpenProductsFacts (otros productos)
+      if (producto.nombre === "No encontrado") {
+        try {
+          const r = await fetch(`https://world.openproductsfacts.org/api/v0/product/${codigo}.json`);
+          const d = await r.json();
+          if (d.status === 1) {
+            apply(
+              {
+                nombre: d.product.product_name,
+                marca: d.product.brands,
+                imagen: d.product.image_small_url
+              },
+              JSON.stringify(d.product, null, 2)
+            );
+          }
+        } catch {}
+      }
+
+      // 5️⃣ UPCitemDB (general)
+      if (producto.nombre === "No encontrado") {
+        try {
+          const r = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${codigo}`);
+          const d = await r.json();
+          if (d.items?.length) {
+            const p = d.items[0];
+            apply(
+              {
+                nombre: p.title,
+                marca: p.brand,
+                imagen: p.images?.[0]
+              },
+              JSON.stringify(p, null, 2)
+            );
+          }
+        } catch {}
+      }
+
+      // 6️⃣ Google Books (ISBN libros)
+      if (producto.nombre === "No encontrado") {
+        try {
+          const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${codigo}`);
+          const d = await r.json();
+          if (d.items?.length) {
+            const p = d.items[0].volumeInfo;
+            apply(
+              {
+                nombre: p.title,
+                marca: p.publisher,
+                imagen: p.imageLinks?.thumbnail
+              },
+              JSON.stringify(p, null, 2)
+            );
+          }
+        } catch {}
+      }
+
+      // FALLBACK
+      if (producto.nombre === "No encontrado") {
+        producto = {
+          ...producto,
+          nombre: "No encontrado en APIs públicas",
+          marca: "Manual",
+          datosExtra: "Este producto no está en bases públicas. Puedes editarlo manualmente."
+        };
       }
 
       setProductos((prev) => {
@@ -88,18 +187,12 @@ export default function App() {
     return () => Quagga.stop();
   }, []);
 
-  // ==============================
-  // EDITAR TABLA
-  // ==============================
   const editar = (id, campo, valor) => {
     setProductos(productos.map(p =>
       p.id === id ? { ...p, [campo]: valor } : p
     ));
   };
 
-  // ==============================
-  // SUBIR IMAGEN
-  // ==============================
   const handleImage = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -131,15 +224,12 @@ export default function App() {
     <div className="p-6 bg-green-50 min-h-screen">
       <h1 className="text-2xl font-bold mb-4">Scanner</h1>
 
-      {/* CAMARA PEQUEÑA */}
       <div className="mb-4">
         <div id="scanner" className="w-64 h-40 border rounded" />
       </div>
 
-      {/* SUBIR IMAGEN */}
       <input type="file" accept="image/*" onChange={handleImage} className="mb-4" />
 
-      {/* TABLA EDITABLE */}
       <table className="w-full border bg-white">
         <thead className="bg-green-500 text-white">
           <tr>
