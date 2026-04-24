@@ -1,11 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Quagga from "quagga";
 
 export default function App() {
   const [productos, setProductos] = useState([]);
+  const [escaneando, setEscaneando] = useState(true);
+  const ultimoCodigoRef = useRef(null);
+  const contadorRef = useRef(0);
+
+  const sonido = new Audio("https://www.myinstants.com/media/sounds/yamete-kudasai.mp3");
 
   // ==============================
-  // FETCH UNIVERSAL (MÁS APIs REALES)
+  // FETCH ULTRA ROBUSTO
   // ==============================
   const fetchProducto = async (codigo) => {
     try {
@@ -18,137 +23,35 @@ export default function App() {
         datosExtra: ""
       };
 
-      // Helper para aplicar datos
-      const apply = (p, extra) => {
-        producto = {
-          ...producto,
-          nombre: p.nombre || producto.nombre,
-          marca: p.marca || producto.marca,
-          imagen: p.imagen || producto.imagen,
-          datosExtra: extra
-        };
+      const tryFetch = async (url, parser) => {
+        try {
+          const res = await fetch(url);
+          const data = await res.json();
+          return parser(data);
+        } catch {
+          return null;
+        }
       };
 
-      // 1️⃣ OpenFoodFacts (comida)
-      try {
-        const r = await fetch(`https://world.openfoodfacts.org/api/v0/product/${codigo}.json`);
-        const d = await r.json();
-        if (d.status === 1) {
-          apply(
-            {
-              nombre: d.product.product_name,
-              marca: d.product.brands,
-              imagen: d.product.image_small_url
-            },
-            JSON.stringify(d.product, null, 2)
-          );
-        }
-      } catch {}
+      const resultado =
+        (await tryFetch(`https://world.openfoodfacts.org/api/v0/product/${codigo}.json`, d => d.status === 1 && d.product)) ||
+        (await tryFetch(`https://world.openbeautyfacts.org/api/v0/product/${codigo}.json`, d => d.status === 1 && d.product)) ||
+        (await tryFetch(`https://world.openproductsfacts.org/api/v0/product/${codigo}.json`, d => d.status === 1 && d.product)) ||
+        (await tryFetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${codigo}`, d => d.items?.[0])) ||
+        (await tryFetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${codigo}`, d => d.items?.[0]?.volumeInfo));
 
-      // 2️⃣ OpenBeautyFacts (cosméticos)
-      if (producto.nombre === "No encontrado") {
-        try {
-          const r = await fetch(`https://world.openbeautyfacts.org/api/v0/product/${codigo}.json`);
-          const d = await r.json();
-          if (d.status === 1) {
-            apply(
-              {
-                nombre: d.product.product_name,
-                marca: d.product.brands,
-                imagen: d.product.image_small_url
-              },
-              JSON.stringify(d.product, null, 2)
-            );
-          }
-        } catch {}
-      }
-
-      // 3️⃣ OpenPetFoodFacts (mascotas)
-      if (producto.nombre === "No encontrado") {
-        try {
-          const r = await fetch(`https://world.openpetfoodfacts.org/api/v0/product/${codigo}.json`);
-          const d = await r.json();
-          if (d.status === 1) {
-            apply(
-              {
-                nombre: d.product.product_name,
-                marca: d.product.brands,
-                imagen: d.product.image_small_url
-              },
-              JSON.stringify(d.product, null, 2)
-            );
-          }
-        } catch {}
-      }
-
-      // 4️⃣ OpenProductsFacts (otros productos)
-      if (producto.nombre === "No encontrado") {
-        try {
-          const r = await fetch(`https://world.openproductsfacts.org/api/v0/product/${codigo}.json`);
-          const d = await r.json();
-          if (d.status === 1) {
-            apply(
-              {
-                nombre: d.product.product_name,
-                marca: d.product.brands,
-                imagen: d.product.image_small_url
-              },
-              JSON.stringify(d.product, null, 2)
-            );
-          }
-        } catch {}
-      }
-
-      // 5️⃣ UPCitemDB (general)
-      if (producto.nombre === "No encontrado") {
-        try {
-          const r = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${codigo}`);
-          const d = await r.json();
-          if (d.items?.length) {
-            const p = d.items[0];
-            apply(
-              {
-                nombre: p.title,
-                marca: p.brand,
-                imagen: p.images?.[0]
-              },
-              JSON.stringify(p, null, 2)
-            );
-          }
-        } catch {}
-      }
-
-      // 6️⃣ Google Books (ISBN libros)
-      if (producto.nombre === "No encontrado") {
-        try {
-          const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${codigo}`);
-          const d = await r.json();
-          if (d.items?.length) {
-            const p = d.items[0].volumeInfo;
-            apply(
-              {
-                nombre: p.title,
-                marca: p.publisher,
-                imagen: p.imageLinks?.thumbnail
-              },
-              JSON.stringify(p, null, 2)
-            );
-          }
-        } catch {}
-      }
-
-      // FALLBACK
-      if (producto.nombre === "No encontrado") {
+      if (resultado) {
         producto = {
           ...producto,
-          nombre: "No encontrado en APIs públicas",
-          marca: "Manual",
-          datosExtra: "Este producto no está en bases públicas. Puedes editarlo manualmente."
+          nombre: resultado.product_name || resultado.title || "Sin nombre",
+          marca: resultado.brands || resultado.brand || resultado.publisher || "-",
+          imagen: resultado.image_small_url || resultado.images?.[0] || resultado.imageLinks?.thumbnail || "",
+          datosExtra: JSON.stringify(resultado, null, 2)
         };
       }
 
-      setProductos((prev) => {
-        if (prev.find((x) => x.codigo === codigo)) return prev;
+      setProductos(prev => {
+        if (prev.find(p => p.codigo === codigo)) return prev;
         return [...prev, producto];
       });
     } catch (e) {
@@ -157,128 +60,99 @@ export default function App() {
   };
 
   // ==============================
-  // ESCÁNER
+  // ESCÁNER MEJORADO
   // ==============================
   useEffect(() => {
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-    Quagga.init(
-      {
-        inputStream: {
-          type: "LiveStream",
-          target: document.querySelector("#scanner"),
-          constraints: isMobile
-            ? { facingMode: "environment" }
-            : { facingMode: "user" }
-        },
-
-        locator: {
-          patchSize: "medium",
-          halfSample: true
-        },
-
-        decoder: {
-          readers: ["ean_reader", "ean_8_reader", "code_128_reader"]
-        },
-
-        locate: true,
-
-        // 🔥 Reduce falsos positivos
-        numOfWorkers: navigator.hardwareConcurrency || 4,
-        frequency: 5 // analiza menos frames (menos ruido)
+    Quagga.init({
+      inputStream: {
+        type: "LiveStream",
+        target: document.querySelector("#scanner"),
+        constraints: isMobile
+          ? { facingMode: "environment" }
+          : { facingMode: "user" }
       },
-      (err) => {
-        if (!err) Quagga.start();
-      }
-    );
+      locator: {
+        patchSize: "medium",
+        halfSample: true
+      },
+      decoder: {
+        readers: ["ean_reader", "ean_8_reader", "code_128_reader"]
+      },
+      locate: true,
+      frequency: 5
+    }, err => {
+      if (!err) Quagga.start();
+    });
 
-    // ==============================
-    // FILTRO ANTI ERRORES
-    // ==============================
-    let ultimoCodigo = null;
-    let contador = 0;
+    Quagga.onDetected(data => {
+      if (!escaneando) return;
 
-    // 🔊 sonido (puedes cambiar el mp3 por el que quieras)
-    const sonido = new Audio("https://www.myinstants.com/media/sounds/yamete-kudasai.mp3");
-
-    Quagga.onDetected((data) => {
       const codigo = data.codeResult.code;
-
-      // ❗ Validar longitud típica
       if (codigo.length < 8) return;
 
-      // ❗ Validar confianza
       const error = data.codeResult.decodedCodes?.[0]?.error;
       if (error && error > 0.2) return;
 
-      // ❗ Confirmación múltiple
-      if (codigo === ultimoCodigo) {
-        contador++;
+      if (codigo === ultimoCodigoRef.current) {
+        contadorRef.current++;
       } else {
-        ultimoCodigo = codigo;
-        contador = 1;
+        ultimoCodigoRef.current = codigo;
+        contadorRef.current = 1;
       }
 
-      // Solo aceptar si lo detecta varias veces seguidas
-      if (contador >= 3) {
+      if (contadorRef.current >= 3) {
         fetchProducto(codigo);
 
-        // 🔊 reproducir sonido
         sonido.currentTime = 0;
         sonido.play().catch(() => {});
 
-        contador = 0;
-        ultimoCodigo = null;
+        setEscaneando(false);
+        setTimeout(() => setEscaneando(true), 2000);
+
+        contadorRef.current = 0;
+        ultimoCodigoRef.current = null;
       }
     });
 
     return () => Quagga.stop();
-  }, []);
+  }, [escaneando]);
 
+  // ==============================
+  // EDITAR
+  // ==============================
   const editar = (id, campo, valor) => {
     setProductos(productos.map(p =>
       p.id === id ? { ...p, [campo]: valor } : p
     ));
   };
 
-  const handleImage = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      Quagga.decodeSingle(
-        {
-          src: reader.result,
-          decoder: {
-            readers: ["ean_reader", "ean_8_reader", "code_128_reader"]
-          }
-        },
-        (result) => {
-          if (result?.codeResult) {
-            fetchProducto(result.codeResult.code);
-          } else {
-            alert("No se detectó código");
-          }
-        }
-      );
-    };
-
-    reader.readAsDataURL(file);
-  };
-
   return (
     <div className="p-6 bg-green-50 min-h-screen">
-      <h1 className="text-2xl font-bold mb-4">Scanner</h1>
+      <h1 className="text-2xl font-bold mb-4">Scanner PRO</h1>
 
-      <div className="mb-4">
-        <div id="scanner" className="w-64 h-40 border rounded" />
+      <div className="flex gap-6">
+        {/* CÁMARA PEQUEÑA */}
+        <div className="relative">
+          <div id="scanner" className="w-64 h-40 border rounded" />
+
+          {/* MARCO CENTRAL */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="border-2 border-green-500 w-40 h-20" />
+          </div>
+        </div>
+
+        {/* INFO */}
+        <div>
+          <p className="text-sm text-gray-600">
+            Apunta al código dentro del recuadro
+          </p>
+        </div>
       </div>
 
-      <input type="file" accept="image/*" onChange={handleImage} className="mb-4" />
-
-      <table className="w-full border bg-white">
+      {/* TABLA */}
+      <table className="w-full mt-6 border bg-white text-sm">
         <thead className="bg-green-500 text-white">
           <tr>
             <th>Código</th>
@@ -289,7 +163,7 @@ export default function App() {
           </tr>
         </thead>
         <tbody>
-          {productos.map((p) => (
+          {productos.map(p => (
             <tr key={p.id} className="border">
               <td>
                 <input value={p.codigo} onChange={e => editar(p.id, "codigo", e.target.value)} />
