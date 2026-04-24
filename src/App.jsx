@@ -2,87 +2,94 @@ import { useEffect, useState } from "react";
 import Quagga from "quagga";
 
 export default function App() {
-  // Ahora guardamos objetos completos de producto
-  // { id, codigo, nombre, marca, imagen }
   const [productos, setProductos] = useState([]);
 
-  // ==============================
-  // FUNCIÓN: OBTENER DATOS REALES
-  // ==============================
   const fetchProducto = async (codigo) => {
     try {
-      const res = await fetch(
+      let producto = {
+        id: Date.now(),
+        codigo,
+        nombre: "No encontrado",
+        marca: "-",
+        imagen: "",
+        datosExtra: ""
+      };
+
+      const resFood = await fetch(
         `https://world.openfoodfacts.org/api/v0/product/${codigo}.json`
       );
-      const data = await res.json();
+      const dataFood = await resFood.json();
 
-      if (data.status === 1) {
-        const p = data.product;
-
-        const producto = {
-          id: Date.now(),
-          codigo,
+      if (dataFood.status === 1) {
+        const p = dataFood.product;
+        producto = {
+          ...producto,
           nombre: p.product_name || "Sin nombre",
           marca: p.brands || "Sin marca",
-          imagen: p.image_small_url || ""
+          imagen: p.image_small_url || "",
+          datosExtra: JSON.stringify(p, null, 2)
         };
-
-        setProductos((prev) => {
-          if (prev.find((x) => x.codigo === codigo)) return prev;
-          return [...prev, producto];
-        });
       } else {
-        // Si no existe en la API
-        setProductos((prev) => {
-          if (prev.find((x) => x.codigo === codigo)) return prev;
-          return [
-            ...prev,
-            {
-              id: Date.now(),
-              codigo,
-              nombre: "No encontrado",
-              marca: "-",
-              imagen: ""
-            }
-          ];
-        });
+        const resUPC = await fetch(
+          `https://api.upcitemdb.com/prod/trial/lookup?upc=${codigo}`
+        );
+        const dataUPC = await resUPC.json();
+
+        if (dataUPC.items && dataUPC.items.length > 0) {
+          const p = dataUPC.items[0];
+          producto = {
+            ...producto,
+            nombre: p.title || "Sin nombre",
+            marca: p.brand || "Sin marca",
+            imagen: p.images?.[0] || "",
+            datosExtra: JSON.stringify(p, null, 2)
+          };
+        }
       }
+
+      setProductos((prev) => {
+        if (prev.find((x) => x.codigo === codigo)) return prev;
+        return [...prev, producto];
+      });
     } catch (e) {
       console.error(e);
     }
   };
 
-  // ==============================
-  // ESCANEO CON CÁMARA
-  // ==============================
   useEffect(() => {
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    const constraints = isMobile
+      ? {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: "environment"
+        }
+      : {
+          width: 640,
+          height: 480,
+          facingMode: "user"
+        };
+
     Quagga.init(
       {
         inputStream: {
           type: "LiveStream",
           target: document.querySelector("#scanner"),
-          constraints: {
-            width: 640,
-            height: 480,
-            facingMode: "environment"
-          }
+          constraints
         },
         locator: {
-          patchSize: "medium",
+          patchSize: isMobile ? "large" : "medium",
           halfSample: true
         },
         decoder: {
-          readers: [
-            "ean_reader",
-            "ean_8_reader",
-            "code_128_reader"
-          ]
+          readers: ["ean_reader", "ean_8_reader", "code_128_reader"]
         },
         locate: true
       },
       (err) => {
         if (err) {
-          console.error(err);
+          console.error("Error iniciando cámara:", err);
           return;
         }
         Quagga.start();
@@ -91,7 +98,7 @@ export default function App() {
 
     Quagga.onDetected((data) => {
       const codigo = data.codeResult.code;
-      fetchProducto(codigo); // 🔥 aquí pedimos datos reales
+      fetchProducto(codigo);
     });
 
     return () => {
@@ -99,9 +106,6 @@ export default function App() {
     };
   }, []);
 
-  // ==============================
-  // ESCANEO DESDE IMAGEN
-  // ==============================
   const handleImage = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -115,17 +119,13 @@ export default function App() {
           numOfWorkers: 0,
           inputStream: { size: 800 },
           decoder: {
-            readers: [
-              "ean_reader",
-              "ean_8_reader",
-              "code_128_reader"
-            ]
+            readers: ["ean_reader", "ean_8_reader", "code_128_reader"]
           }
         },
         (result) => {
           if (result && result.codeResult) {
             const codigo = result.codeResult.code;
-            fetchProducto(codigo); // 🔥 también aquí
+            fetchProducto(codigo);
           } else {
             alert("No se detectó ningún código");
           }
@@ -136,51 +136,67 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  // ==============================
-  // TEST MANUAL
-  // ==============================
-  /*
-  useEffect(() => {
-    fetchProducto("8410376054033");
-  }, []);
-  */
-
   return (
-    <div>
-      <h2>Scanner código de barras</h2>
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 p-6">
+      <div className="max-w-5xl mx-auto">
+        <h1 className="text-3xl font-bold text-emerald-700 mb-6">
+          Scanner de Productos
+        </h1>
 
-      <input type="file" accept="image/*" onChange={handleImage} />
+        <div className="bg-white p-4 rounded-2xl shadow mb-6">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleImage}
+            className="mb-4"
+          />
 
-      <div
-        id="scanner"
-        style={{ width: "640px", height: "480px", border: "1px solid black" }}
-      />
+          <div
+            id="scanner"
+            className="w-full h-[300px] rounded-xl overflow-hidden border"
+          />
+        </div>
 
-      {/* TABLA CON DATOS REALES */}
-      <table border="1" cellPadding="5">
-        <thead>
-          <tr>
-            <th>Código</th>
-            <th>Nombre</th>
-            <th>Marca</th>
-            <th>Imagen</th>
-          </tr>
-        </thead>
-        <tbody>
-          {productos.map((p) => (
-            <tr key={p.id}>
-              <td>{p.codigo}</td>
-              <td>{p.nombre}</td>
-              <td>{p.marca}</td>
-              <td>
-                {p.imagen && (
-                  <img src={p.imagen} alt="" width="50" />
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+        <div className="bg-white rounded-2xl shadow overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-emerald-600 text-white">
+              <tr>
+                <th className="p-2">Código de barras</th>
+                <th className="p-2">Nombre</th>
+                <th className="p-2">Marca</th>
+                <th className="p-2">Imagen</th>
+                <th className="p-2">Datos</th>
+              </tr>
+            </thead>
+            <tbody>
+              {productos.map((p) => (
+                <tr
+                  key={p.id}
+                  className="border-b hover:bg-emerald-50 transition"
+                >
+                  <td className="p-2">{p.codigo}</td>
+                  <td className="p-2">{p.nombre}</td>
+                  <td className="p-2">{p.marca}</td>
+                  <td className="p-2">
+                    {p.imagen && (
+                      <img
+                        src={p.imagen}
+                        alt=""
+                        className="w-12 h-12 object-cover rounded"
+                      />
+                    )}
+                  </td>
+                  <td className="p-2">
+                    <pre className="max-w-xs max-h-40 overflow-auto text-xs bg-gray-100 p-2 rounded">
+                      {p.datosExtra}
+                    </pre>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
