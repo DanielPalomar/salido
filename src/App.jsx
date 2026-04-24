@@ -171,17 +171,65 @@ export default function App() {
             ? { facingMode: "environment" }
             : { facingMode: "user" }
         },
+
+        locator: {
+          patchSize: "medium",
+          halfSample: true
+        },
+
         decoder: {
           readers: ["ean_reader", "ean_8_reader", "code_128_reader"]
-        }
+        },
+
+        locate: true,
+
+        // 🔥 Reduce falsos positivos
+        numOfWorkers: navigator.hardwareConcurrency || 4,
+        frequency: 5 // analiza menos frames (menos ruido)
       },
       (err) => {
         if (!err) Quagga.start();
       }
     );
 
+    // ==============================
+    // FILTRO ANTI ERRORES
+    // ==============================
+    let ultimoCodigo = null;
+    let contador = 0;
+
+    // 🔊 sonido (puedes cambiar el mp3 por el que quieras)
+    const sonido = new Audio("https://www.myinstants.com/media/sounds/yamete-kudasai.mp3");
+
     Quagga.onDetected((data) => {
-      fetchProducto(data.codeResult.code);
+      const codigo = data.codeResult.code;
+
+      // ❗ Validar longitud típica
+      if (codigo.length < 8) return;
+
+      // ❗ Validar confianza
+      const error = data.codeResult.decodedCodes?.[0]?.error;
+      if (error && error > 0.2) return;
+
+      // ❗ Confirmación múltiple
+      if (codigo === ultimoCodigo) {
+        contador++;
+      } else {
+        ultimoCodigo = codigo;
+        contador = 1;
+      }
+
+      // Solo aceptar si lo detecta varias veces seguidas
+      if (contador >= 3) {
+        fetchProducto(codigo);
+
+        // 🔊 reproducir sonido
+        sonido.currentTime = 0;
+        sonido.play().catch(() => {});
+
+        contador = 0;
+        ultimoCodigo = null;
+      }
     });
 
     return () => Quagga.stop();
