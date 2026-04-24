@@ -4,6 +4,9 @@ import Quagga from "quagga";
 export default function App() {
   const [productos, setProductos] = useState([]);
 
+  // ==============================
+  // FETCH UNIVERSAL (VARIAS APIs)
+  // ==============================
   const fetchProducto = async (codigo) => {
     try {
       let producto = {
@@ -15,9 +18,8 @@ export default function App() {
         datosExtra: ""
       };
 
-      const resFood = await fetch(
-        `https://world.openfoodfacts.org/api/v0/product/${codigo}.json`
-      );
+      // API 1: alimentos
+      const resFood = await fetch(`https://world.openfoodfacts.org/api/v0/product/${codigo}.json`);
       const dataFood = await resFood.json();
 
       if (dataFood.status === 1) {
@@ -30,12 +32,11 @@ export default function App() {
           datosExtra: JSON.stringify(p, null, 2)
         };
       } else {
-        const resUPC = await fetch(
-          `https://api.upcitemdb.com/prod/trial/lookup?upc=${codigo}`
-        );
+        // API 2: productos generales
+        const resUPC = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${codigo}`);
         const dataUPC = await resUPC.json();
 
-        if (dataUPC.items && dataUPC.items.length > 0) {
+        if (dataUPC.items?.length) {
           const p = dataUPC.items[0];
           producto = {
             ...producto,
@@ -56,56 +57,49 @@ export default function App() {
     }
   };
 
+  // ==============================
+  // ESCÁNER
+  // ==============================
   useEffect(() => {
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-    const constraints = isMobile
-      ? {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: "environment"
-        }
-      : {
-          width: 640,
-          height: 480,
-          facingMode: "user"
-        };
 
     Quagga.init(
       {
         inputStream: {
           type: "LiveStream",
           target: document.querySelector("#scanner"),
-          constraints
-        },
-        locator: {
-          patchSize: isMobile ? "large" : "medium",
-          halfSample: true
+          constraints: isMobile
+            ? { facingMode: "environment" }
+            : { facingMode: "user" }
         },
         decoder: {
           readers: ["ean_reader", "ean_8_reader", "code_128_reader"]
-        },
-        locate: true
+        }
       },
       (err) => {
-        if (err) {
-          console.error("Error iniciando cámara:", err);
-          return;
-        }
-        Quagga.start();
+        if (!err) Quagga.start();
       }
     );
 
     Quagga.onDetected((data) => {
-      const codigo = data.codeResult.code;
-      fetchProducto(codigo);
+      fetchProducto(data.codeResult.code);
     });
 
-    return () => {
-      Quagga.stop();
-    };
+    return () => Quagga.stop();
   }, []);
 
+  // ==============================
+  // EDITAR TABLA
+  // ==============================
+  const editar = (id, campo, valor) => {
+    setProductos(productos.map(p =>
+      p.id === id ? { ...p, [campo]: valor } : p
+    ));
+  };
+
+  // ==============================
+  // SUBIR IMAGEN
+  // ==============================
   const handleImage = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -116,18 +110,15 @@ export default function App() {
       Quagga.decodeSingle(
         {
           src: reader.result,
-          numOfWorkers: 0,
-          inputStream: { size: 800 },
           decoder: {
             readers: ["ean_reader", "ean_8_reader", "code_128_reader"]
           }
         },
         (result) => {
-          if (result && result.codeResult) {
-            const codigo = result.codeResult.code;
-            fetchProducto(codigo);
+          if (result?.codeResult) {
+            fetchProducto(result.codeResult.code);
           } else {
-            alert("No se detectó ningún código");
+            alert("No se detectó código");
           }
         }
       );
@@ -137,66 +128,54 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 p-6">
-      <div className="max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold text-emerald-700 mb-6">
-          Scanner de Productos
-        </h1>
+    <div className="p-6 bg-green-50 min-h-screen">
+      <h1 className="text-2xl font-bold mb-4">Scanner</h1>
 
-        <div className="bg-white p-4 rounded-2xl shadow mb-6">
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleImage}
-            className="mb-4"
-          />
-
-          <div
-            id="scanner"
-            className="w-full h-[300px] rounded-xl overflow-hidden border"
-          />
-        </div>
-
-        <div className="bg-white rounded-2xl shadow overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-emerald-600 text-white">
-              <tr>
-                <th className="p-2">Código de barras</th>
-                <th className="p-2">Nombre</th>
-                <th className="p-2">Marca</th>
-                <th className="p-2">Imagen</th>
-                <th className="p-2">Datos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {productos.map((p) => (
-                <tr
-                  key={p.id}
-                  className="border-b hover:bg-emerald-50 transition"
-                >
-                  <td className="p-2">{p.codigo}</td>
-                  <td className="p-2">{p.nombre}</td>
-                  <td className="p-2">{p.marca}</td>
-                  <td className="p-2">
-                    {p.imagen && (
-                      <img
-                        src={p.imagen}
-                        alt=""
-                        className="w-12 h-12 object-cover rounded"
-                      />
-                    )}
-                  </td>
-                  <td className="p-2">
-                    <pre className="max-w-xs max-h-40 overflow-auto text-xs bg-gray-100 p-2 rounded">
-                      {p.datosExtra}
-                    </pre>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* CAMARA PEQUEÑA */}
+      <div className="mb-4">
+        <div id="scanner" className="w-64 h-40 border rounded" />
       </div>
+
+      {/* SUBIR IMAGEN */}
+      <input type="file" accept="image/*" onChange={handleImage} className="mb-4" />
+
+      {/* TABLA EDITABLE */}
+      <table className="w-full border bg-white">
+        <thead className="bg-green-500 text-white">
+          <tr>
+            <th>Código</th>
+            <th>Nombre</th>
+            <th>Marca</th>
+            <th>Imagen</th>
+            <th>Datos</th>
+          </tr>
+        </thead>
+        <tbody>
+          {productos.map((p) => (
+            <tr key={p.id} className="border">
+              <td>
+                <input value={p.codigo} onChange={e => editar(p.id, "codigo", e.target.value)} />
+              </td>
+              <td>
+                <input value={p.nombre} onChange={e => editar(p.id, "nombre", e.target.value)} />
+              </td>
+              <td>
+                <input value={p.marca} onChange={e => editar(p.id, "marca", e.target.value)} />
+              </td>
+              <td>
+                {p.imagen && <img src={p.imagen} width="40" />}
+              </td>
+              <td>
+                <textarea
+                  value={p.datosExtra}
+                  onChange={e => editar(p.id, "datosExtra", e.target.value)}
+                  className="w-40 h-20"
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
